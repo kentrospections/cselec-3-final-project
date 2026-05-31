@@ -1,0 +1,65 @@
+from typing import AsyncGenerator, Optional
+
+import strawberry
+from strawberry.fastapi import GraphQLRouter
+from strawberry.types import Info
+
+from app.graphql.resolvers import semesters, students, subjects, subscriptions
+from app.graphql.types import (
+    GradeEvent,
+    Semester,
+    SemesterTrend,
+    StudentDetail,
+    StudentSummary,
+    Subject,
+    SubjectAnalytics,
+)
+
+
+@strawberry.type
+class Query:
+    @strawberry.field
+    async def students(
+        self,
+        info: Info,
+        at_risk: Optional[bool] = None,
+        course: Optional[str] = None,
+        semester_id: Optional[int] = None,
+    ) -> list[StudentSummary]:
+        return await students.resolve_students(at_risk, course, semester_id)
+
+    @strawberry.field
+    async def student(self, info: Info, id: int) -> Optional[StudentDetail]:
+        return await students.resolve_student(id)
+
+    @strawberry.field
+    async def subjects(self, info: Info) -> list[Subject]:
+        return await subjects.resolve_subjects()
+
+    @strawberry.field
+    async def subject_analytics(
+        self, info: Info, subject_code: str
+    ) -> Optional[SubjectAnalytics]:
+        return await subjects.resolve_subject_analytics(subject_code)
+
+    @strawberry.field
+    async def semesters(self, info: Info) -> list[Semester]:
+        return await semesters.resolve_semesters()
+
+    @strawberry.field
+    async def semester_comparison(
+        self, info: Info, school_year: Optional[int] = None
+    ) -> list[SemesterTrend]:
+        return await semesters.resolve_semester_comparison(school_year)
+
+
+@strawberry.type
+class Subscription:
+    @strawberry.subscription
+    async def grade_updates(self, info: Info) -> AsyncGenerator[GradeEvent, None]:
+        async for event in subscriptions.grade_updates_resolver():
+            yield event
+
+
+schema = strawberry.Schema(query=Query, subscription=Subscription)
+graphql_app = GraphQLRouter(schema, subscription_protocols=["graphql-ws"])

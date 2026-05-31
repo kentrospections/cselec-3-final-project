@@ -187,6 +187,19 @@ async def main() -> None:
     joblib.dump(model, MODEL_PATH)
     print(f"Model saved to {MODEL_PATH}")
 
+    print("Persisting at_risk_score for all students ...")
+    scores = model.predict_proba(np.array(X, dtype=float))[:, 1]
+    score_records = [
+        (float(scores[i]), int(agg_rows[i]["student_id"]))
+        for i in range(len(agg_rows))
+    ]
+    for i in range(0, len(score_records), BATCH_SIZE):
+        await conn.executemany(
+            "UPDATE students SET at_risk_score = $1 WHERE student_id = $2",
+            score_records[i : i + BATCH_SIZE],
+        )
+    print(f"at_risk_score persisted for {len(score_records):,} students")
+
     await conn.close()
     print("Seed complete.")
 

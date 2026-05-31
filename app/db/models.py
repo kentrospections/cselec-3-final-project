@@ -1,5 +1,5 @@
+from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Boolean, Integer, Float, BigInteger, ForeignKey
 
 
 class Base(DeclarativeBase):
@@ -13,6 +13,7 @@ class Student(Base):
     name: Mapped[str] = mapped_column(String)
     course: Mapped[str] = mapped_column(String)
     is_at_risk: Mapped[bool] = mapped_column(Boolean, default=False)
+    at_risk_score: Mapped[float] = mapped_column(Float, default=0.0)
 
 
 class Subject(Base):

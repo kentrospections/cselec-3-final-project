@@ -23,7 +23,7 @@ async def gql(client, query: str, variables: dict | None = None) -> dict:
 # ─── students query ───────────────────────────────────────────────────────────
 
 async def test_students_returns_list(client, seeded_db):
-    data = await gql(client, "{ students { studentId name course gpa isAtRisk } }")
+    data = await gql(client, "{ students { studentId name course gpa isAtRisk atRiskScore } }")
     assert len(data["students"]) == 2
 
 
@@ -54,19 +54,26 @@ async def test_students_gpa_values(client, seeded_db):
     assert abs(gpas["Bob"] - 63.5) < 0.01
 
 
-async def test_students_at_risk_filter_requires_model(client, seeded_db, mock_model):
-    data = await gql(client, "{ students(atRisk: true) { name isAtRisk } }")
-    # Mock model is trained to classify Bob (gpa~63.5, negative slope) as at-risk
+async def test_students_at_risk_score_values(client, seeded_db):
+    data = await gql(client, "{ students { name atRiskScore } }")
+    scores = {s["name"]: s["atRiskScore"] for s in data["students"]}
+    assert abs(scores["Alice"] - 0.1) < 0.001
+    assert abs(scores["Bob"] - 0.9) < 0.001
+
+
+async def test_students_at_risk_filter_uses_stored_score(client, seeded_db):
+    # Bob has at_risk_score=0.9 (>=0.5), Alice has 0.1 (<0.5)
+    data = await gql(client, "{ students(atRisk: true) { name atRiskScore } }")
     names = [s["name"] for s in data["students"]]
     assert "Bob" in names
     assert "Alice" not in names
 
 
-async def test_students_at_risk_no_model_returns_empty(client, seeded_db, monkeypatch):
-    from app.ml import classifier
-    monkeypatch.setattr(classifier, "_model", None)
-    data = await gql(client, "{ students(atRisk: true) { name } }")
-    assert data["students"] == []
+async def test_students_at_risk_false_returns_all(client, seeded_db):
+    # Regression: atRisk: false must not filter — both students returned
+    data = await gql(client, "{ students(atRisk: false) { name } }")
+    names = {s["name"] for s in data["students"]}
+    assert names == {"Alice", "Bob"}
 
 
 # ─── student (single) query ───────────────────────────────────────────────────
@@ -75,11 +82,12 @@ async def test_student_returns_detail(client, seeded_db):
     alice_id = seeded_db["Alice"]
     data = await gql(
         client,
-        "query($id: Int!) { student(id: $id) { studentId name gpa semesters { semester gpa grades { subjectCode grade } } } }",
+        "query($id: Int!) { student(id: $id) { studentId name gpa atRiskScore semesters { semester gpa grades { subjectCode grade } } } }",
         {"id": alice_id},
     )
     s = data["student"]
     assert s["name"] == "Alice"
+    assert abs(s["atRiskScore"] - 0.1) < 0.001
     assert len(s["semesters"]) == 2
     # Each semester has 2 subjects
     assert len(s["semesters"][0]["grades"]) == 2

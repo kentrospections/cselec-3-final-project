@@ -189,9 +189,9 @@ async def seeded_db(session_factory):
         )
         await session.execute(
             text("""
-                INSERT INTO students (name, course, is_at_risk) VALUES
-                ('Alice', 'BSCS', false),
-                ('Bob',   'BSCS', true)
+                INSERT INTO students (name, course, is_at_risk, at_risk_score) VALUES
+                ('Alice', 'BSCS', false, 0.1),
+                ('Bob',   'BSCS', true,  0.9)
             """)
         )
 

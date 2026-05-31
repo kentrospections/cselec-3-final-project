@@ -18,7 +18,8 @@ def upgrade() -> None:
             student_id SERIAL PRIMARY KEY,
             name VARCHAR NOT NULL,
             course VARCHAR NOT NULL,
-            is_at_risk BOOLEAN NOT NULL DEFAULT FALSE
+            is_at_risk BOOLEAN NOT NULL DEFAULT FALSE,
+            at_risk_score FLOAT NOT NULL DEFAULT 0.0
         )
     """)
 

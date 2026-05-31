@@ -9,6 +9,7 @@ class StudentSummary:
     course: str
     gpa: float
     is_at_risk: bool
+    at_risk_score: float
 
 
 @strawberry.type
@@ -34,6 +35,7 @@ class StudentDetail:
     course: str
     gpa: float
     is_at_risk: bool
+    at_risk_score: float
     semesters: list[SemesterGrades]
 
 

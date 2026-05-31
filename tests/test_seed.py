@@ -89,3 +89,17 @@ async def test_seed_grade_ranges(mini_seed, session_factory):
         ).fetchone()
     assert row.min >= 50.0
     assert row.max <= 100.0
+
+
+async def test_seed_stores_at_risk_scores(mini_seed, session_factory):
+    """at_risk_score must be non-trivially populated — not left at the 0.0 default."""
+    await seed_mod.main()
+    async with session_factory() as session:
+        row = (
+            await session.execute(
+                text("SELECT MIN(at_risk_score), MAX(at_risk_score) FROM students")
+            )
+        ).fetchone()
+    # With 20 students (3 at-risk, 17 normal) the model should produce a range
+    # of scores well above 0.0 for at-risk students.
+    assert row.max > 0.0

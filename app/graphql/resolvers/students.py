@@ -1,4 +1,3 @@
-from collections import defaultdict
 from typing import Optional
 
 import numpy as np
@@ -7,7 +6,6 @@ from sqlalchemy import text
 from app.cache.redis_client import get_cached_gpa, set_cached_gpa
 from app.db.session import AsyncSessionLocal
 from app.graphql.types import GradeRecord, SemesterGrades, StudentDetail, StudentSummary
-from app.ml.classifier import get_model
 
 
 async def resolve_students(
@@ -15,120 +13,83 @@ async def resolve_students(
     course: Optional[str],
     semester_id: Optional[int],
 ) -> list[StudentSummary]:
+    # ── Phase 1: fetch student rows (no GPA aggregation) ──────────────────────
+    # Join grades only when a semester_id filter is requested.
     async with AsyncSessionLocal() as session:
-        filters = []
-        params: dict = {}
-        if course is not None:
-            filters.append("s.course = :course")
-            params["course"] = course
         if semester_id is not None:
-            filters.append("g.semester_id = :semester_id")
-            params["semester_id"] = semester_id
+            params: dict = {"semester_id": semester_id}
+            course_clause = "AND s.course = :course" if course is not None else ""
+            if course is not None:
+                params["course"] = course
+            student_rows = (
+                await session.execute(
+                    text(f"""
+                        SELECT DISTINCT s.student_id, s.name, s.course,
+                                        s.is_at_risk, s.at_risk_score
+                        FROM students s
+                        JOIN grades g ON s.student_id = g.student_id
+                        WHERE g.semester_id = :semester_id {course_clause}
+                    """),
+                    params,
+                )
+            ).fetchall()
+        else:
+            params = {}
+            where = ""
+            if course is not None:
+                where = "WHERE course = :course"
+                params["course"] = course
+            student_rows = (
+                await session.execute(
+                    text(f"SELECT student_id, name, course, is_at_risk, at_risk_score FROM students {where}"),
+                    params,
+                )
+            ).fetchall()
 
-        where = ("WHERE " + " AND ".join(filters)) if filters else ""
+    # ── Phase 2: check Redis first; hit DB only for cache misses ──────────────
+    gpas: dict[int, float] = {}
+    miss_ids: list[int] = []
 
-        rows = (
-            await session.execute(
-                text(f"""
-                    SELECT
-                        s.student_id,
-                        s.name,
-                        s.course,
-                        s.is_at_risk,
-                        AVG(g.grade) AS gpa
-                    FROM students s
-                    JOIN grades g ON s.student_id = g.student_id
-                    {where}
-                    GROUP BY s.student_id, s.name, s.course, s.is_at_risk
-                """),
-                params,
-            )
-        ).fetchall()
-
-    # Hydrate GPAs through Redis cache
-    student_data = []
-    cache_misses = []
-    for row in rows:
+    for row in student_rows:
         cached = await get_cached_gpa(row.student_id)
         if cached is not None:
-            gpa = cached
+            gpas[row.student_id] = cached
         else:
-            gpa = float(row.gpa) if row.gpa is not None else 0.0
-            cache_misses.append((row.student_id, gpa))
-        student_data.append((row, gpa))
+            miss_ids.append(row.student_id)
 
-    for sid, gpa in cache_misses:
-        await set_cached_gpa(sid, gpa)
-
-    if at_risk:
-        model = get_model()
-        if model is None:
-            return []
-
-        # Compute per-semester GPA for all students in one global aggregate —
-        # avoids passing a 500K-element ID list as a SQL parameter.
+    if miss_ids:
         async with AsyncSessionLocal() as session:
-            slope_rows = (
+            gpa_rows = (
                 await session.execute(
                     text("""
-                        SELECT student_id, semester_id, AVG(grade) AS sem_gpa
+                        SELECT student_id, AVG(grade) AS gpa
                         FROM grades
-                        GROUP BY student_id, semester_id
-                        ORDER BY student_id, semester_id
-                    """)
-                )
-            ).fetchall()
-
-            fail_rows = (
-                await session.execute(
-                    text("""
-                        SELECT
-                            student_id,
-                            COUNT(*) FILTER (WHERE grade < 75)                    AS fail_count,
-                            COUNT(DISTINCT subject_code) FILTER (WHERE grade < 75) AS fail_subjects
-                        FROM grades
+                        WHERE student_id = ANY(:ids)
                         GROUP BY student_id
-                    """)
+                    """),
+                    {"ids": miss_ids},
                 )
             ).fetchall()
 
-        sem_gpas: dict[int, list[float]] = defaultdict(list)
-        for r in slope_rows:
-            sem_gpas[r.student_id].append(float(r.sem_gpa))
+        for r in gpa_rows:
+            gpa = float(r.gpa) if r.gpa is not None else 0.0
+            gpas[r.student_id] = gpa
+            await set_cached_gpa(r.student_id, gpa)
 
-        fail_map = {r.student_id: (int(r.fail_count), int(r.fail_subjects)) for r in fail_rows}
-
-        feature_list = []
-        for row, gpa in student_data:
-            gpas = sem_gpas[row.student_id]
-            slope = float(np.polyfit(range(len(gpas)), gpas, 1)[0]) if len(gpas) >= 2 else 0.0
-            fc, fs = fail_map.get(row.student_id, (0, 0))
-            feature_list.append([gpa, slope, float(fc), float(fs)])
-
-        X = np.array(feature_list, dtype=float)
-        probs = model.predict_proba(X)[:, 1]
-
-        return [
-            StudentSummary(
-                student_id=row.student_id,
-                name=row.name,
-                course=row.course,
-                gpa=round(gpa, 4),
-                is_at_risk=bool(row.is_at_risk),
-            )
-            for (row, gpa), prob in zip(student_data, probs)
-            if prob >= 0.5
-        ]
+    # ── Filter by stored at_risk_score when atRisk: true ─────────────────────
+    if at_risk is True:
+        student_rows = [r for r in student_rows if r.at_risk_score >= 0.5]
 
     return [
         StudentSummary(
             student_id=row.student_id,
             name=row.name,
             course=row.course,
-            gpa=round(gpa, 4),
+            gpa=round(gpas.get(row.student_id, 0.0), 4),
             is_at_risk=bool(row.is_at_risk),
+            at_risk_score=round(float(row.at_risk_score), 4),
         )
-        for row, gpa in student_data
+        for row in student_rows
     ]
 
 
@@ -202,5 +163,6 @@ async def resolve_student(student_id: int) -> Optional[StudentDetail]:
         course=student_row.course,
         gpa=round(overall_gpa, 4),
         is_at_risk=bool(student_row.is_at_risk),
+        at_risk_score=round(float(student_row.at_risk_score), 4),
         semesters=semesters_out,
     )

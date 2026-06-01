@@ -4,7 +4,7 @@ import strawberry
 from strawberry.fastapi import GraphQLRouter
 from strawberry.types import Info
 
-from app.graphql.resolvers import semesters, students, subjects, subscriptions
+from app.graphql.resolvers import grades, semesters, students, subjects, subscriptions
 from app.graphql.types import (
     GradeEvent,
     Semester,
@@ -51,6 +51,18 @@ class Query:
         self, info: Info, school_year: Optional[int] = None
     ) -> list[SemesterTrend]:
         return await semesters.resolve_semester_comparison(school_year)
+
+    @strawberry.field
+    async def recent_grades(self, info: Info, limit: int = 100) -> list[GradeEvent]:
+        return await grades.resolve_recent_grades(limit)
+
+    @strawberry.field
+    async def grades_before(self, info: Info, before_id: int, limit: int = 50) -> list[GradeEvent]:
+        return await grades.resolve_grades_before(before_id, limit)
+
+    @strawberry.field
+    async def grade_count(self, info: Info) -> int:
+        return await grades.resolve_grade_count()
 
 
 @strawberry.type

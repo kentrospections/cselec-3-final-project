@@ -1,6 +1,7 @@
 services:
   frontend:
     networks:
+      - default
       - nginx-reverse
 
 networks:

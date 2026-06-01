@@ -1,3 +1,5 @@
+from typing import Optional
+
 import strawberry
 from strawberry.scalars import JSON
 
@@ -47,12 +49,22 @@ class Subject:
 
 
 @strawberry.type
+class SubjectSemesterTrend:
+    semester: str
+    school_year: int
+    average_grade: float
+    pass_rate: float
+    rolling_avg: Optional[float]
+
+
+@strawberry.type
 class SubjectAnalytics:
     subject_code: str
     description: str
     average_grade: float
     pass_rate: float
     grade_distribution: JSON
+    semester_trends: list[SubjectSemesterTrend]
 
 
 @strawberry.type
@@ -75,8 +87,9 @@ class SemesterTrend:
 
 @strawberry.type
 class GradeEvent:
+    grade_id: Optional[int] = None
     student_id: int
     subject_code: str
     semester_id: int
     grade: float
-    timestamp: str
+    timestamp: Optional[str] = None

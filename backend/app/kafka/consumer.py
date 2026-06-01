@@ -29,7 +29,8 @@ def remove_subscription_queue(q: asyncio.Queue) -> None:
 
 
 async def _make_consumer(group_id: str) -> AIOKafkaConsumer:
-    for attempt in range(12):
+    attempt = 0
+    while True:
         try:
             consumer = AIOKafkaConsumer(
                 settings.kafka_topic,
@@ -41,10 +42,10 @@ async def _make_consumer(group_id: str) -> AIOKafkaConsumer:
             await consumer.start()
             return consumer
         except Exception as exc:
-            wait = 2 ** min(attempt, 5)
+            wait = 2 ** min(attempt, 5)  # 1s, 2s, 4s, 8s, 16s, 32s max
             logger.warning("Kafka not ready (%s), retrying in %ds...", exc, wait)
             await asyncio.sleep(wait)
-    raise RuntimeError("Could not connect to Kafka after multiple retries")
+            attempt += 1
 
 
 async def _recompute_at_risk_score(student_id: int) -> None:
@@ -102,23 +103,37 @@ async def _recompute_at_risk_score(student_id: int) -> None:
 
 
 async def cache_invalidator_consumer() -> None:
-    consumer = await _make_consumer("cache-invalidator")
-    try:
-        async for msg in consumer:
-            student_id = msg.value.get("student_id")
-            if student_id is not None:
-                await invalidate_gpa(int(student_id))
-                await _recompute_at_risk_score(int(student_id))
-    finally:
-        await consumer.stop()
+    while True:
+        try:
+            consumer = await _make_consumer("cache-invalidator")
+            try:
+                async for msg in consumer:
+                    student_id = msg.value.get("student_id")
+                    if student_id is not None:
+                        await invalidate_gpa(int(student_id))
+                        await _recompute_at_risk_score(int(student_id))
+            finally:
+                await consumer.stop()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("cache_invalidator_consumer crashed: %s — restarting in 5s", exc)
+            await asyncio.sleep(5)
 
 
 async def subscription_pusher_consumer() -> None:
-    consumer = await _make_consumer("subscription-pusher")
-    try:
-        async for msg in consumer:
-            event = msg.value
-            for q in list(_subscription_queues):
-                await q.put(event)
-    finally:
-        await consumer.stop()
+    while True:
+        try:
+            consumer = await _make_consumer("subscription-pusher")
+            try:
+                async for msg in consumer:
+                    event = msg.value
+                    for q in list(_subscription_queues):
+                        await q.put(event)
+            finally:
+                await consumer.stop()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("subscription_pusher_consumer crashed: %s — restarting in 5s", exc)
+            await asyncio.sleep(5)

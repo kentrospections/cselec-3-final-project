@@ -1,0 +1,8 @@
+services:
+  frontend:
+    networks:
+      - nginx-reverse
+
+networks:
+  nginx-reverse:
+    external: true

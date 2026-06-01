@@ -436,9 +436,7 @@ export function DataTable({
         </TabsList>
         <div className="flex items-center gap-2">
           <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button variant="outline" size="sm" />}
-            >
+            <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
               <Columns3Icon data-icon="inline-start" />
               Columns
               <ChevronDownIcon data-icon="inline-end" />
@@ -681,7 +679,7 @@ function TableCellViewer({ item }: { item: z.infer<typeof schema> }) {
   const isMobile = useIsMobile()
   return (
     <Drawer direction={isMobile ? "bottom" : "right"}>
-      <DrawerTrigger render={<Button variant="link" className="w-fit px-0 text-left text-foreground" />}>{item.header}</DrawerTrigger>
+      <DrawerTrigger asChild><Button variant="link" className="w-fit px-0 text-left text-foreground">{item.header}</Button></DrawerTrigger>
       <DrawerContent>
         <DrawerHeader className="gap-1">
           <DrawerTitle>{item.header}</DrawerTitle>
@@ -857,7 +855,7 @@ function TableCellViewer({ item }: { item: z.infer<typeof schema> }) {
         </div>
         <DrawerFooter>
           <Button>Submit</Button>
-          <DrawerClose render={<Button variant="outline" />}></DrawerClose>
+          <DrawerClose asChild><Button variant="outline">Close</Button></DrawerClose>
         </DrawerFooter>
       </DrawerContent>
     </Drawer>

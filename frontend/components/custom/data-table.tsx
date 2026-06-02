@@ -16,7 +16,6 @@ import {
 import {
   IconArrowUp,
   IconArrowDown,
-  IconArrowsUpDown,
   IconColumns3,
   IconChevronDown,
   IconFilter,
@@ -89,6 +88,10 @@ interface DataTableProps<T> {
   renderDrawer?: (row: T) => React.ReactNode
   disablePagination?: boolean
   footerContent?: React.ReactNode
+  isCompact?: boolean
+  initialColumnVisibility?: VisibilityState
+  isNewRow?: (row: T) => boolean
+  newRowClass?: (row: T) => string
 }
 
 function SortIcon({ sorted }: { sorted: false | "asc" | "desc" }) {
@@ -107,9 +110,15 @@ export function DataTable<T>({
   renderDrawer,
   disablePagination = false,
   footerContent,
+  isCompact = false,
+  initialColumnVisibility,
+  isNewRow,
+  newRowClass,
 }: DataTableProps<T>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
+    initialColumnVisibility ?? {}
+  )
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [pagination, setPagination] = React.useState({ pageIndex: 0, pageSize: 10 })
   const [drawerRow, setDrawerRow] = React.useState<T | null>(null)
@@ -144,11 +153,16 @@ export function DataTable<T>({
     primaryFilter?.onChange(!v || v === "__all__" ? undefined : v)
   }
 
+  // Responsive class helpers — compact forces mobile-style layout regardless of viewport
+  const px = isCompact ? "px-4" : "px-4 lg:px-6"
+  const mx = isCompact ? "mx-4" : "mx-4 lg:mx-6"
+  const btnLabel = isCompact ? "hidden" : "hidden lg:inline"
+
   return (
     <>
       <div className="flex w-full flex-col gap-4">
         {/* Toolbar */}
-        <div className="flex items-center justify-between px-4 lg:px-6">
+        <div className={cn("flex items-center justify-between", px)}>
           <div className="flex items-center gap-2">
             {primaryFilter && (
               <>
@@ -164,7 +178,7 @@ export function DataTable<T>({
                   <SelectTrigger
                     size="sm"
                     id="primary-filter"
-                    className="flex w-36 @4xl/main:hidden"
+                    className={cn("flex w-36", !isCompact && "@4xl/main:hidden")}
                   >
                     <SelectValue placeholder={primaryFilter.placeholder} />
                   </SelectTrigger>
@@ -182,23 +196,25 @@ export function DataTable<T>({
                   </SelectContent>
                 </Select>
 
-                <Tabs
-                  value={primarySelectValue}
-                  onValueChange={(v) => handlePrimaryChange(v as string)}
-                  className="hidden @4xl/main:block"
-                >
-                  <TabsList>
-                    {primaryFilter.options.map((opt) => (
-                      <TabsTrigger
-                        key={opt.value ?? "__all__"}
-                        value={opt.value ?? "__all__"}
-                        disabled={isEmpty}
-                      >
-                        {opt.label}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
+                {!isCompact && (
+                  <Tabs
+                    value={primarySelectValue}
+                    onValueChange={(v) => handlePrimaryChange(v as string)}
+                    className="hidden @4xl/main:block"
+                  >
+                    <TabsList>
+                      {primaryFilter.options.map((opt) => (
+                        <TabsTrigger
+                          key={opt.value ?? "__all__"}
+                          value={opt.value ?? "__all__"}
+                          disabled={isEmpty}
+                        >
+                          {opt.label}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+                )}
               </>
             )}
 
@@ -237,8 +253,8 @@ export function DataTable<T>({
               <DropdownMenuTrigger
                 render={<Button variant="outline" size="sm" />}
               >
-                <IconColumns3 data-icon="inline-start" />
-                Columns
+                <IconColumns3 />
+                <span className={btnLabel}>Columns</span>
                 <IconChevronDown data-icon="inline-end" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-36">
@@ -248,27 +264,25 @@ export function DataTable<T>({
                   .map((col) => (
                     <DropdownMenuCheckboxItem
                       key={col.id}
-                      className="capitalize"
                       checked={col.getIsVisible()}
                       onCheckedChange={(v) => col.toggleVisibility(!!v)}
                     >
-                      {col.id.replace(/([A-Z])/g, " $1").replace(/_/g, " ").trim()}
+                      {typeof col.columnDef.header === "string"
+                        ? col.columnDef.header
+                        : col.id}
                     </DropdownMenuCheckboxItem>
                   ))}
               </DropdownMenuContent>
             </DropdownMenu>
             <Button variant="outline" size="sm" onClick={onReload} disabled={isLoading}>
-              <IconRefresh
-                data-icon="inline-start"
-                className={cn(isLoading && "animate-spin")}
-              />
-              <span className="hidden lg:inline">Reload</span>
+              <IconRefresh className={cn(isLoading && "animate-spin")} />
+              <span className={btnLabel}>Reload</span>
             </Button>
           </div>
         </div>
 
         {/* Table */}
-        <div className="overflow-hidden rounded-lg border mx-4 lg:mx-6">
+        <div className={cn("rounded-lg border", mx, isCompact ? "overflow-x-auto" : "overflow-hidden")}>
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-muted">
               {table.getHeaderGroups().map((headerGroup) => (
@@ -300,7 +314,10 @@ export function DataTable<T>({
                 table.getRowModel().rows.map((row) => (
                   <TableRow
                     key={row.id}
-                    className={cn(renderDrawer && "cursor-pointer")}
+                    className={cn(
+                      renderDrawer && "cursor-pointer",
+                      isNewRow?.(row.original) && (newRowClass?.(row.original) ?? "animate-new-row-enter")
+                    )}
                     onClick={() => renderDrawer && setDrawerRow(row.original)}
                   >
                     {row.getVisibleCells().map((cell) => (
@@ -308,7 +325,15 @@ export function DataTable<T>({
                         key={cell.id}
                         className={cn(cell.column.columnDef.meta?.compact && "w-px whitespace-nowrap")}
                       >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        {isNewRow ? (
+                          <div className={cn("grid", isNewRow(row.original) && "overflow-hidden animate-new-row-cell-expand")}>
+                            <div className={cn("min-h-0", isNewRow(row.original) && "animate-new-row-cell-reveal")}>
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </div>
+                          </div>
+                        ) : (
+                          flexRender(cell.column.columnDef.cell, cell.getContext())
+                        )}
                       </TableCell>
                     ))}
                   </TableRow>
@@ -330,17 +355,17 @@ export function DataTable<T>({
         {/* Footer */}
         {disablePagination ? (
           footerContent && (
-            <div className="flex items-center px-4 lg:px-6">
+            <div className={cn("flex items-center", px)}>
               <div className="text-sm text-muted-foreground">{footerContent}</div>
             </div>
           )
         ) : (
-          <div className="flex items-center justify-between px-4 lg:px-6">
-            <div className="hidden flex-1 text-sm text-muted-foreground lg:flex">
+          <div className={cn("flex items-center justify-between", px)}>
+            <div className={cn("flex-1 text-sm text-muted-foreground", isCompact ? "hidden" : "hidden lg:flex")}>
               {table.getFilteredRowModel().rows.length} row(s) total
             </div>
-            <div className="flex w-full items-center gap-8 lg:w-fit">
-              <div className="hidden items-center gap-2 lg:flex">
+            <div className={cn("flex items-center gap-8", isCompact ? "w-full" : "w-full lg:w-fit")}>
+              <div className={cn("items-center gap-2", isCompact ? "hidden" : "hidden lg:flex")}>
                 <Label htmlFor="rows-per-page" className="text-sm font-medium">
                   Rows per page
                 </Label>
@@ -366,10 +391,10 @@ export function DataTable<T>({
                 Page {table.getState().pagination.pageIndex + 1} of{" "}
                 {table.getPageCount()}
               </div>
-              <div className="ml-auto flex items-center gap-2 lg:ml-0">
+              <div className={cn("flex items-center gap-2", isCompact ? "ml-auto" : "ml-auto lg:ml-0")}>
                 <Button
                   variant="outline"
-                  className="hidden size-8 lg:flex"
+                  className={cn("size-8", isCompact ? "hidden" : "hidden lg:flex")}
                   size="icon"
                   onClick={() => table.setPageIndex(0)}
                   disabled={!table.getCanPreviousPage()}
@@ -399,7 +424,7 @@ export function DataTable<T>({
                 </Button>
                 <Button
                   variant="outline"
-                  className="hidden size-8 lg:flex"
+                  className={cn("size-8", isCompact ? "hidden" : "hidden lg:flex")}
                   size="icon"
                   onClick={() => table.setPageIndex(table.getPageCount() - 1)}
                   disabled={!table.getCanNextPage()}
@@ -419,8 +444,10 @@ export function DataTable<T>({
           onOpenChange={(open) => { if (!open) setDrawerRow(null) }}
           direction={isMobile ? "bottom" : "right"}
         >
-          <DrawerContent className="overflow-y-auto data-[vaul-drawer-direction=right]:max-w-lg data-[vaul-drawer-direction=bottom]:max-h-[85svh]">
-            {drawerRow && renderDrawer(drawerRow)}
+          <DrawerContent className="overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {drawerRow && renderDrawer(drawerRow)}
+            </div>
           </DrawerContent>
         </Drawer>
       )}

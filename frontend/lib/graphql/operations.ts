@@ -112,6 +112,19 @@ export const SubjectAnalyticsQuery = /* GraphQL */ `
   }
 `
 
+export const StudentsForSubjectQuery = /* GraphQL */ `
+  query StudentsForSubject($subjectCode: String!) {
+    students(subjectCode: $subjectCode) {
+      studentId
+      name
+      course
+      gpa
+      isAtRisk
+      atRiskScore
+    }
+  }
+`
+
 export const GradeCountQuery = /* GraphQL */ `
   query GradeCount {
     gradeCount

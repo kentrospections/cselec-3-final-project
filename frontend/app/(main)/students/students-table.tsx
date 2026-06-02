@@ -45,13 +45,14 @@ const columns: ColumnDef<StudentSummary>[] = [
   {
     accessorKey: "atRiskScore",
     header: "Risk Score",
-    cell: ({ row }) => row.original.atRiskScore.toFixed(2),
+    cell: ({ row }) => `${(row.original.atRiskScore * 100).toFixed(0)}%`,
   },
 ]
 
 const primaryFilterOptions = [
   { label: "All", value: undefined },
   { label: "At risk", value: "true" },
+  { label: "Not at risk", value: "false" },
 ]
 
 interface StudentsTableProps {
@@ -78,6 +79,8 @@ export function StudentsTable({ initialData, atRisk }: StudentsTableProps) {
   const handlePrimaryFilter = (value: string | undefined) => {
     if (value === "true") {
       router.replace("?at_risk=true")
+    } else if (value === "false") {
+      router.replace("?at_risk=false")
     } else {
       router.replace("?")
     }
@@ -103,7 +106,7 @@ export function StudentsTable({ initialData, atRisk }: StudentsTableProps) {
       primaryFilter={{
         placeholder: "Filter students",
         options: primaryFilterOptions,
-        value: atRisk === true ? "true" : undefined,
+        value: atRisk === true ? "true" : atRisk === false ? "false" : undefined,
         onChange: handlePrimaryFilter,
       }}
       secondaryFilter={{

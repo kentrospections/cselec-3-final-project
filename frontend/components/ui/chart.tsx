@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import NumberFlow from "@number-flow/react"
 import * as RechartsPrimitive from "recharts"
 import type { TooltipValueType } from "recharts"
 
@@ -254,9 +255,11 @@ function ChartTooltipContent({
                       </div>
                       {item.value != null && (
                         <span className="font-mono font-medium text-foreground tabular-nums">
-                          {typeof item.value === "number"
-                            ? item.value.toLocaleString()
-                            : String(item.value)}
+                          {typeof item.value === "number" ? (
+                            <NumberFlow value={item.value} />
+                          ) : (
+                            String(item.value)
+                          )}
                         </span>
                       )}
                     </div>

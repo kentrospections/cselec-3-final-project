@@ -3,6 +3,10 @@ services:
     networks:
       - default
       - nginx-reverse
+  backend:
+    networks:
+      - default
+      - nginx-reverse
 
 networks:
   nginx-reverse:

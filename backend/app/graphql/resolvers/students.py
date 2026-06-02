@@ -12,15 +12,19 @@ async def resolve_students(
     at_risk: Optional[bool],
     course: Optional[str],
     semester_id: Optional[int],
+    subject_code: Optional[str] = None,
 ) -> list[StudentSummary]:
     # ── Phase 1: fetch student rows (no GPA aggregation) ──────────────────────
-    # Join grades only when a semester_id filter is requested.
     async with AsyncSessionLocal() as session:
         if semester_id is not None:
+            conditions = ["g.semester_id = :semester_id"]
             params: dict = {"semester_id": semester_id}
-            course_clause = "AND s.course = :course" if course is not None else ""
             if course is not None:
+                conditions.append("s.course = :course")
                 params["course"] = course
+            if subject_code is not None:
+                conditions.append("g.subject_code = :subject_code")
+                params["subject_code"] = subject_code
             student_rows = (
                 await session.execute(
                     text(f"""
@@ -28,17 +32,23 @@ async def resolve_students(
                                         s.is_at_risk, s.at_risk_score
                         FROM students s
                         JOIN grades g ON s.student_id = g.student_id
-                        WHERE g.semester_id = :semester_id {course_clause}
+                        WHERE {" AND ".join(conditions)}
                     """),
                     params,
                 )
             ).fetchall()
         else:
+            conditions = []
             params = {}
-            where = ""
             if course is not None:
-                where = "WHERE course = :course"
+                conditions.append("course = :course")
                 params["course"] = course
+            if subject_code is not None:
+                conditions.append(
+                    "student_id IN (SELECT DISTINCT student_id FROM grades WHERE subject_code = :subject_code)"
+                )
+                params["subject_code"] = subject_code
+            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
             student_rows = (
                 await session.execute(
                     text(f"SELECT student_id, name, course, is_at_risk, at_risk_score FROM students {where}"),
@@ -76,9 +86,10 @@ async def resolve_students(
             gpas[r.student_id] = gpa
             await set_cached_gpa(r.student_id, gpa)
 
-    # ── Filter by stored at_risk_score when atRisk: true ─────────────────────
     if at_risk is True:
         student_rows = [r for r in student_rows if r.at_risk_score >= 0.5]
+    elif at_risk is False:
+        student_rows = [r for r in student_rows if r.at_risk_score < 0.5]
 
     return [
         StudentSummary(

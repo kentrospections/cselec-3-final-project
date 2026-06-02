@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/card"
 import {
@@ -91,17 +91,23 @@ export function SemesterComparisonDrawer({ semester }: Props) {
               </CardContent>
             </Card>
 
-            <Card className="col-span-2">
+            <Card className="col-span-2 pb-0">
               <CardContent className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
                   <CardDescription>AY {semester.schoolYear} Semesters</CardDescription>
                   {trendBadge(trendSlope)}
                 </div>
                 <ChartContainer config={chartConfig} className="h-52 w-full">
-                  <LineChart
+                  <AreaChart
                     data={chartData}
                     margin={{ top: 4, right: 8, bottom: 16, left: 0 }}
                   >
+                    <defs>
+                      <linearGradient id="gpaGradientSem" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--color-averageGpa)" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="var(--color-averageGpa)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis
                       dataKey="label"
@@ -111,15 +117,16 @@ export function SemesterComparisonDrawer({ semester }: Props) {
                     />
                     <YAxis domain={["auto", "auto"]} hide />
                     <ChartTooltip content={<ChartTooltipContent className="min-w-40" />} />
-                    <Line
+                    <Area
                       type="monotone"
                       dataKey="averageGpa"
                       stroke="var(--color-averageGpa)"
+                      fill="url(#gpaGradientSem)"
                       strokeWidth={2}
-                      dot={{ r: 3, fill: "var(--color-averageGpa)" }}
-                      activeDot={{ r: 5, fill: "var(--color-averageGpa)" }}
+                      dot={{ r: 3, fill: "var(--color-averageGpa)", stroke: "var(--color-averageGpa)", strokeWidth: 1 }}
+                      activeDot={{ r: 5, fill: "var(--color-averageGpa)", stroke: "var(--color-averageGpa)", strokeWidth: 1 }}
                     />
-                  </LineChart>
+                  </AreaChart>
                 </ChartContainer>
               </CardContent>
             </Card>

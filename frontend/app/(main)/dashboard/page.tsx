@@ -1,17 +1,17 @@
-import { ChartAreaInteractive } from "@/components/chart-area-interactive"
-import { DataTable } from "@/components/data-table"
-import { SectionCards } from "@/components/section-cards"
+"use client"
 
-import data from "@/app/dashboard/data.json"
+import { DashboardCards } from "./dashboard-cards"
+import { DashboardTrendChart } from "./dashboard-trend-chart"
+import { DashboardGradesFeed } from "./dashboard-grades-feed"
 
-export default function Page() {
+export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
-      <SectionCards />
+      <DashboardCards />
       <div className="px-4 lg:px-6">
-        <ChartAreaInteractive />
+        <DashboardTrendChart />
       </div>
-      <DataTable data={data} />
+      <DashboardGradesFeed />
     </div>
   )
 }

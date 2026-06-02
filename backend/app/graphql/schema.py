@@ -25,8 +25,9 @@ class Query:
         at_risk: Optional[bool] = None,
         course: Optional[str] = None,
         semester_id: Optional[int] = None,
+        subject_code: Optional[str] = None,
     ) -> list[StudentSummary]:
-        return await students.resolve_students(at_risk, course, semester_id)
+        return await students.resolve_students(at_risk, course, semester_id, subject_code)
 
     @strawberry.field
     async def student(self, info: Info, id: int) -> Optional[StudentDetail]:
@@ -74,4 +75,4 @@ class Subscription:
 
 
 schema = strawberry.Schema(query=Query, subscription=Subscription)
-graphql_app = GraphQLRouter(schema, subscription_protocols=["graphql-ws"])
+graphql_app = GraphQLRouter(schema, subscription_protocols=["graphql-transport-ws"])

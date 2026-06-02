@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { createClient } from "graphql-ws"
 import {
   CartesianGrid,
   Cell,
@@ -8,17 +9,14 @@ import {
   LineChart,
   Pie,
   PieChart,
-  RadialBar,
-  RadialBarChart,
   XAxis,
   YAxis,
 } from "recharts"
+import type { ColumnDef } from "@tanstack/react-table"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/card"
 import {
   ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
@@ -29,8 +27,18 @@ import {
   DrawerDescription,
 } from "@/components/ui/drawer"
 import { Skeleton } from "@/components/ui/skeleton"
+import { DataTable } from "@/components/custom/data-table"
+import { cn } from "@/lib/utils"
 import { gqlFetch } from "@/lib/graphql"
-import { SubjectAnalyticsQuery, type Subject, type SubjectAnalytics } from "@/lib/graphql/operations"
+import {
+  GradeUpdatesSubscription,
+  StudentsForSubjectQuery,
+  SubjectAnalyticsQuery,
+  type GradeEvent,
+  type Subject,
+  type SubjectAnalytics,
+  type StudentSummary,
+} from "@/lib/graphql/operations"
 import { formatSemesterShort } from "@/lib/format"
 
 const PIE_COLORS = [
@@ -46,9 +54,31 @@ const trendChartConfig = {
   rollingAvg: { label: "3-sem avg", color: "var(--chart-2)" },
 } satisfies ChartConfig
 
-const passRateConfig = {
-  pass: { label: "Pass Rate", color: "var(--chart-1)" },
-} satisfies ChartConfig
+const studentColumns: ColumnDef<StudentSummary>[] = [
+  { accessorKey: "studentId", header: "Student ID", meta: { compact: true } },
+  { accessorKey: "name", header: "Name" },
+  { accessorKey: "course", header: "Course", meta: { compact: true } },
+  {
+    accessorKey: "gpa",
+    header: "GPA",
+    meta: { compact: true },
+    cell: ({ row }) => (
+      <span className={cn("tabular-nums", row.original.gpa < 75 && "text-destructive")}>
+        {row.original.gpa.toFixed(2)}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "isAtRisk",
+    header: "Status",
+    cell: ({ row }) =>
+      row.original.isAtRisk ? (
+        <Badge variant="destructive">At risk</Badge>
+      ) : (
+        <Badge variant="secondary">Normal</Badge>
+      ),
+  },
+]
 
 function modeBadge(dist: Record<string, number>) {
   const entries = Object.entries(dist)
@@ -63,14 +93,55 @@ interface Props {
 
 export function SubjectAnalyticsDrawer({ subject }: Props) {
   const [analytics, setAnalytics] = React.useState<SubjectAnalytics | null>(null)
+  const [subjectStudents, setSubjectStudents] = React.useState<StudentSummary[] | null>(null)
 
-  React.useEffect(() => {
+  const loadAnalytics = React.useCallback(() => {
     gqlFetch<{ subjectAnalytics: SubjectAnalytics }>(SubjectAnalyticsQuery, {
       subjectCode: subject.subjectCode,
     })
       .then((d) => setAnalytics(d.subjectAnalytics))
       .catch(console.error)
   }, [subject.subjectCode])
+
+  const loadStudents = React.useCallback(() => {
+    gqlFetch<{ students: StudentSummary[] }>(StudentsForSubjectQuery, {
+      subjectCode: subject.subjectCode,
+    })
+      .then((d) => setSubjectStudents(d.students))
+      .catch(console.error)
+  }, [subject.subjectCode])
+
+  React.useEffect(() => {
+    loadAnalytics()
+    loadStudents()
+  }, [loadAnalytics, loadStudents])
+
+  // Re-fetch when a new grade arrives for this subject
+  React.useEffect(() => {
+    const wsUrl =
+      (window.location.protocol === "https:" ? "wss:" : "ws:") +
+      "//" +
+      window.location.host +
+      "/graphql"
+    const client = createClient({ url: wsUrl })
+    const unsub = client.subscribe<{ gradeUpdates: GradeEvent }>(
+      { query: GradeUpdatesSubscription },
+      {
+        next: ({ data }) => {
+          if (data?.gradeUpdates?.subjectCode === subject.subjectCode) {
+            loadAnalytics()
+            loadStudents()
+          }
+        },
+        error: console.error,
+        complete: () => {},
+      }
+    )
+    return () => {
+      unsub()
+      client.dispose()
+    }
+  }, [subject.subjectCode, loadAnalytics, loadStudents])
 
   const distChartData = analytics
     ? Object.entries(analytics.gradeDistribution).map(([range, count]) => ({
@@ -105,129 +176,126 @@ export function SubjectAnalyticsDrawer({ subject }: Props) {
           {subject.description} · {subject.units} units
         </DrawerDescription>
       </DrawerHeader>
-      <div className="px-4 pb-6">
-        {!analytics ? (
-          <div className="grid grid-cols-2 gap-3">
-            <Skeleton className="h-24" />
-            <Skeleton className="h-32" />
-            <Skeleton className="col-span-2 h-48" />
-            <Skeleton className="col-span-2 h-56" />
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3">
-            <Card>
-              <CardContent>
-                <CardDescription>Average Grade</CardDescription>
-                <CardTitle className="text-2xl tabular-nums">
-                  {analytics.averageGrade.toFixed(2)}
-                </CardTitle>
-              </CardContent>
-            </Card>
 
-            {/* Pass Rate — half-circle radial gauge */}
-            <Card>
-              <CardContent className="flex flex-col items-center gap-1">
-                <CardDescription className="self-start">Pass Rate</CardDescription>
-                <ChartContainer
-                  config={passRateConfig}
-                  className="h-16 w-full max-w-[90px]"
-                >
-                  <RadialBarChart
-                    data={[{ name: "pass", value: analytics.passRate * 100 }]}
-                    cx="50%"
-                    cy="100%"
-                    innerRadius="60%"
-                    outerRadius="90%"
-                    startAngle={180}
-                    endAngle={0}
-                  >
-                    <RadialBar
-                      dataKey="value"
-                      fill="var(--color-pass)"
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      background={{ fill: "var(--muted)" } as any}
-                      cornerRadius={4}
-                    />
-                  </RadialBarChart>
-                </ChartContainer>
-                <CardTitle className="text-xl tabular-nums">
-                  {(analytics.passRate * 100).toFixed(1)}%
-                </CardTitle>
-              </CardContent>
-            </Card>
+      {!analytics ? (
+        <div className="px-4 pb-6 grid grid-cols-2 gap-3">
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+          <Skeleton className="col-span-2 h-48" />
+          <Skeleton className="col-span-2 h-56" />
+        </div>
+      ) : (
+        <>
+          <div className="px-4 pb-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Card>
+                <CardContent>
+                  <CardDescription>Average Grade</CardDescription>
+                  <CardTitle className="text-2xl tabular-nums">
+                    {analytics.averageGrade.toFixed(2)}
+                  </CardTitle>
+                </CardContent>
+              </Card>
 
-            {/* Grade Distribution — donut pie chart */}
-            <Card className="col-span-2">
-              <CardContent className="flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <CardDescription>Grade Distribution</CardDescription>
-                  {modeBadge(analytics.gradeDistribution)}
-                </div>
-                <ChartContainer config={distChartConfig} className="h-48 w-full">
-                  <PieChart>
-                    <ChartTooltip
-                      content={<ChartTooltipContent hideLabel className="min-w-40" />}
-                    />
-                    <Pie
-                      data={distChartData}
-                      dataKey="count"
-                      nameKey="range"
-                      innerRadius="30%"
-                      outerRadius="75%"
-                    >
-                      {distChartData.map((_, i) => (
-                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <ChartLegend content={<ChartLegendContent />} />
-                  </PieChart>
-                </ChartContainer>
-              </CardContent>
-            </Card>
+              <Card>
+                <CardContent>
+                  <CardDescription>Pass Rate</CardDescription>
+                  <CardTitle className="text-2xl tabular-nums">
+                    {(analytics.passRate * 100).toFixed(1)}%
+                  </CardTitle>
+                </CardContent>
+              </Card>
 
-            {trendChartData && trendChartData.length > 0 && (
               <Card className="col-span-2">
                 <CardContent className="flex flex-col gap-2">
-                  <CardDescription>Grade Trend by Semester</CardDescription>
-                  <ChartContainer config={trendChartConfig} className="h-52 w-full">
-                    <LineChart
-                      data={trendChartData}
-                      margin={{ top: 4, right: 8, bottom: 16, left: 0 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis
-                        dataKey="label"
-                        tickLine={false}
-                        axisLine={false}
-                        tick={{ fontSize: 10 }}
+                  <div className="flex items-center justify-between">
+                    <CardDescription>Grade Distribution</CardDescription>
+                    {modeBadge(analytics.gradeDistribution)}
+                  </div>
+                  <ChartContainer
+                    config={distChartConfig}
+                    className="h-48 w-full [&_.recharts-pie-label-text]:fill-foreground"
+                  >
+                    <PieChart>
+                      <ChartTooltip
+                        content={<ChartTooltipContent hideLabel className="min-w-40" />}
                       />
-                      <YAxis domain={["auto", "auto"]} hide />
-                      <ChartTooltip content={<ChartTooltipContent className="min-w-40" />} />
-                      <ChartLegend content={<ChartLegendContent />} />
-                      <Line
-                        type="monotone"
-                        dataKey="averageGrade"
-                        stroke="var(--color-averageGrade)"
-                        strokeWidth={2}
-                        dot={{ r: 3, fill: "var(--color-averageGrade)" }}
-                        activeDot={{ r: 5, fill: "var(--color-averageGrade)" }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="rollingAvg"
-                        stroke="var(--color-rollingAvg)"
-                        strokeWidth={2}
-                        strokeDasharray="4 2"
-                        dot={false}
-                      />
-                    </LineChart>
+                      <Pie
+                        data={distChartData}
+                        dataKey="count"
+                        nameKey="range"
+                        innerRadius="30%"
+                        outerRadius="65%"
+                        label={({ name }) => name ?? ""}
+                        labelLine
+                      >
+                        {distChartData.map((_, i) => (
+                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                    </PieChart>
                   </ChartContainer>
                 </CardContent>
               </Card>
-            )}
+
+              {trendChartData && trendChartData.length > 0 && (
+                <Card className="col-span-2 pb-0">
+                  <CardContent className="flex flex-col gap-2">
+                    <div>
+                      <CardDescription>Grade Trend by Semester</CardDescription>
+                      <p className="text-xs text-muted-foreground/70">
+                        The dashed line averages the current semester with the two before it,
+                        smoothing out one-semester spikes to show the underlying direction.
+                      </p>
+                    </div>
+                    <ChartContainer config={trendChartConfig} className="h-52 w-full">
+                      <LineChart
+                        data={trendChartData}
+                        margin={{ top: 4, right: 8, bottom: 16, left: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis
+                          dataKey="label"
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 10 }}
+                        />
+                        <YAxis domain={["auto", "auto"]} hide />
+                        <ChartTooltip content={<ChartTooltipContent className="min-w-40" />} />
+                        <Line
+                          type="monotone"
+                          dataKey="averageGrade"
+                          stroke="var(--color-averageGrade)"
+                          strokeWidth={2}
+                          dot={{ r: 3, fill: "var(--color-averageGrade)", stroke: "var(--color-averageGrade)", strokeWidth: 1 }}
+                          activeDot={{ r: 5, fill: "var(--color-averageGrade)", stroke: "var(--color-averageGrade)", strokeWidth: 1 }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="rollingAvg"
+                          stroke="var(--color-rollingAvg)"
+                          strokeWidth={2}
+                          strokeDasharray="4 2"
+                          dot={false}
+                        />
+                      </LineChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           </div>
-        )}
-      </div>
+
+          <DataTable
+            columns={studentColumns}
+            data={subjectStudents ?? []}
+            onReload={loadStudents}
+            isLoading={subjectStudents === null}
+            isCompact={true}
+          />
+          <div className="pb-6" />
+        </>
+      )}
     </>
   )
 }

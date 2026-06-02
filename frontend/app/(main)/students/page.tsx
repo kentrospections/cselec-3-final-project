@@ -8,7 +8,10 @@ interface PageProps {
 
 export default async function StudentsPage({ searchParams }: PageProps) {
   const params = await searchParams
-  const atRisk = params.at_risk === "true" ? true : undefined
+  const atRisk =
+    params.at_risk === "true" ? true :
+    params.at_risk === "false" ? false :
+    undefined
 
   const data = await gqlFetch<{ students: StudentSummary[] }>(StudentsQuery, {
     atRisk,

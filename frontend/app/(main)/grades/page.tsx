@@ -66,6 +66,7 @@ export default function GradesPage() {
   const [semesterMap, setSemesterMap] = React.useState<Map<number, string>>(new Map())
   const [gradeCount, setGradeCount] = React.useState<number | null>(null)
   const [loadKey, setLoadKey] = React.useState(0)
+  const [newEvent, setNewEvent] = React.useState<GradeEvent | null>(null)
   const [oldestGradeId, setOldestGradeId] = React.useState<number | null>(null)
   const [hasMore, setHasMore] = React.useState(true)
   const [loadingMore, setLoadingMore] = React.useState(false)
@@ -123,8 +124,11 @@ export default function GradesPage() {
       {
         next: ({ data }) => {
           if (data?.gradeUpdates) {
-            setEvents((prev) => [data.gradeUpdates, ...prev].slice(0, MAX_ROWS))
+            const event = data.gradeUpdates
+            setEvents((prev) => [event, ...prev].slice(0, MAX_ROWS))
             setGradeCount((prev) => (prev !== null ? prev + 1 : null))
+            setNewEvent(event)
+            setTimeout(() => setNewEvent(null), 1500)
           }
         },
         error: (err) => console.error("Grade subscription error:", err),
@@ -192,6 +196,8 @@ export default function GradesPage() {
         onReload={handleReload}
         disablePagination
         footerContent={footerContent}
+        isNewRow={(row) => row === newEvent}
+        newRowClass={(row) => row.grade >= 75 ? "animate-new-row-enter" : "animate-new-row-enter-fail"}
       />
       <div ref={sentinelRef} className="flex justify-center py-2 text-sm text-muted-foreground">
         {loadingMore && <Spinner className="size-5" />}

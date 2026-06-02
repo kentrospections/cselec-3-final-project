@@ -28,7 +28,7 @@ const navItems = [
   { title: "Grades", url: "/grades", icon: <IconTrendingUp /> },
   { title: "Students", url: "/students", icon: <IconSchool /> },
   { title: "Subjects", url: "/subjects", icon: <IconBook /> },
-  { title: "Semesters", url: "/semesters", icon: <IconCalendar /> },
+  { title: "Years", url: "/years", icon: <IconCalendar /> },
 ]
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {

@@ -49,6 +49,9 @@ const PIE_COLORS = [
   "var(--chart-5)",
 ]
 
+const DIST_LABELS: Record<string, string> = { "below_60": "< 60" }
+const fmtDist = (key: string) => DIST_LABELS[key] ?? key
+
 const trendChartConfig = {
   averageGrade: { label: "Avg Grade", color: "var(--chart-1)" },
   rollingAvg: { label: "3-sem avg", color: "var(--chart-2)" },
@@ -84,7 +87,7 @@ function modeBadge(dist: Record<string, number>) {
   const entries = Object.entries(dist)
   if (entries.length === 0) return null
   const [range] = entries.reduce((best, cur) => (cur[1] > best[1] ? cur : best))
-  return <Badge variant="secondary">{range} most common</Badge>
+  return <Badge variant="secondary">{fmtDist(range)} most common</Badge>
 }
 
 interface Props {
@@ -146,6 +149,7 @@ export function SubjectAnalyticsDrawer({ subject }: Props) {
   const distChartData = analytics
     ? Object.entries(analytics.gradeDistribution).map(([range, count]) => ({
         range,
+        label: fmtDist(range),
         count,
       }))
     : []
@@ -154,8 +158,8 @@ export function SubjectAnalyticsDrawer({ subject }: Props) {
     () =>
       Object.fromEntries(
         distChartData.map((d, i) => [
-          d.range,
-          { label: d.range, color: PIE_COLORS[i % PIE_COLORS.length] },
+          d.label,
+          { label: d.label, color: PIE_COLORS[i % PIE_COLORS.length] },
         ])
       ) as ChartConfig,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -223,7 +227,7 @@ export function SubjectAnalyticsDrawer({ subject }: Props) {
                       <Pie
                         data={distChartData}
                         dataKey="count"
-                        nameKey="range"
+                        nameKey="label"
                         innerRadius="30%"
                         outerRadius="65%"
                         label={({ name }) => name ?? ""}

@@ -39,14 +39,14 @@ async def _simulate_one(student_id: int) -> None:
             )
         ).fetchone()
 
-    if row is not None:
-        # Grade centred on the student's risk tendency with per-subject aptitude and noise.
-        # at_risk_score=1.0 → centre≈60, at_risk_score=0.0 → centre≈90
-        center = 90.0 - float(row.at_risk_score) * 30.0
-        aptitude = _get_aptitude(student_id, subject_code)
-        grade = round(max(50.0, min(100.0, random.gauss(center + aptitude, 20.0))), 2)
-    else:
-        grade = round(random.uniform(55.0, 100.0), 2)
+    if row is None:
+        return
+
+    # Grade centred on the student's risk tendency with per-subject aptitude and noise.
+    # at_risk_score=1.0 → centre≈60, at_risk_score=0.0 → centre≈90
+    center = 90.0 - float(row.at_risk_score) * 30.0
+    aptitude = _get_aptitude(student_id, subject_code)
+    grade = round(max(50.0, min(100.0, random.gauss(center + aptitude, 20.0))), 2)
 
     await insert_grade_and_produce(student_id, subject_code, semester_id, grade)
     logger.debug(
@@ -55,17 +55,36 @@ async def _simulate_one(student_id: int) -> None:
     )
 
 
+async def _wait_for_students() -> int:
+    """Poll until at least one student exists and return the max student_id."""
+    while True:
+        async with AsyncSessionLocal() as session:
+            row = (
+                await session.execute(text("SELECT COUNT(*), MAX(student_id) FROM students"))
+            ).fetchone()
+        count, max_id = int(row[0]), int(row[1] or 0)
+        if count > 0:
+            logger.info("Simulator: found %d students (max_id=%d), starting.", count, max_id)
+            return max_id
+        logger.info("Simulator: no students yet, waiting 5s for seed to complete ...")
+        await asyncio.sleep(5)
+
+
 async def grade_simulator_task(interval: int) -> None:
     """Continuously simulate grade events.
 
     `interval` is kept in the signature for config backwards-compatibility but is
     ignored — timing is now random between 3–10 s with a batch of 1–5 grades per tick.
+
+    Waits for at least one student to exist before starting, so it is safe to
+    start the backend before (or during) the seed script.
     """
-    logger.info("Grade simulator started")
+    logger.info("Grade simulator started — waiting for students ...")
+    max_student_id = await _wait_for_students()
     try:
         while True:
             batch_size = random.randint(1, 5)
-            tasks = [_simulate_one(random.randint(1, 1000)) for _ in range(batch_size)]
+            tasks = [_simulate_one(random.randint(1, max_student_id)) for _ in range(batch_size)]
             await asyncio.gather(*tasks)
             await asyncio.sleep(random.uniform(3.0, 10.0))
     except asyncio.CancelledError:

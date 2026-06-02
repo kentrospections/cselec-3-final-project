@@ -71,6 +71,13 @@ services:
       - "3000:3000"
     depends_on:
       - backend
+    networks:
+      - default
+      - nginx-reverse
+
+networks:
+  nginx-reverse:
+    external: true
 
 volumes:
   pgdata:

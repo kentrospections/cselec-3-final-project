@@ -3,6 +3,10 @@ from typing import Optional
 import numpy as np
 from sqlalchemy import text
 
+from app.cache.redis_client import (
+    get_cached_semester_comparison,
+    set_cached_semester_comparison,
+)
 from app.db.session import AsyncSessionLocal
 from app.graphql.types import Semester, SemesterTrend
 
@@ -17,7 +21,23 @@ async def resolve_semesters() -> list[Semester]:
     return [Semester(semester_id=r.semester_id, semester=r.semester, school_year=r.school_year) for r in rows]
 
 
+def _trend_to_dict(t: SemesterTrend) -> dict:
+    return {
+        "semester": t.semester,
+        "school_year": t.school_year,
+        "average_gpa": t.average_gpa,
+        "pass_rate": t.pass_rate,
+        "at_risk_count": t.at_risk_count,
+        "trend_slope": t.trend_slope,
+        "trend_intercept": t.trend_intercept,
+    }
+
+
 async def resolve_semester_comparison(school_year: Optional[int]) -> list[SemesterTrend]:
+    cached = await get_cached_semester_comparison(school_year)
+    if cached is not None:
+        return [SemesterTrend(**row) for row in cached]
+
     params: dict = {}
     year_filter = ""
     if school_year is not None:
@@ -35,10 +55,9 @@ async def resolve_semester_comparison(school_year: Optional[int]) -> list[Semest
                         SUM(g.grade * sub.units) / SUM(sub.units) AS avg_gpa,
                         COUNT(*) FILTER (WHERE g.grade >= 75)::float
                             / NULLIF(COUNT(*), 0) AS pass_rate,
-                        COUNT(DISTINCT s.student_id) FILTER (WHERE s.is_at_risk) AS at_risk_count
+                        (SELECT COUNT(*) FROM students WHERE is_at_risk = TRUE) AS at_risk_count
                     FROM grades g
                     JOIN semesters sem ON g.semester_id = sem.semester_id
-                    JOIN students s ON g.student_id = s.student_id
                     JOIN subjects sub ON g.subject_code = sub.subject_code
                     {year_filter}
                     GROUP BY sem.semester_id, sem.semester, sem.school_year
@@ -55,7 +74,7 @@ async def resolve_semester_comparison(school_year: Optional[int]) -> list[Semest
     y = np.array([float(r.avg_gpa or 0) for r in rows])
     slope, intercept = np.polyfit(x, y, 1) if len(rows) >= 2 else (0.0, float(y[0]) if len(y) else 0.0)
 
-    return [
+    result = [
         SemesterTrend(
             semester=r.semester,
             school_year=r.school_year,
@@ -67,3 +86,6 @@ async def resolve_semester_comparison(school_year: Optional[int]) -> list[Semest
         )
         for r in rows
     ]
+
+    await set_cached_semester_comparison(school_year, [_trend_to_dict(t) for t in result])
+    return result

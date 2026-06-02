@@ -2,6 +2,12 @@ import datetime
 
 from sqlalchemy import text
 
+from app.cache.redis_client import (
+    get_cached_grade_count,
+    get_cached_overall_avg_gpa,
+    set_cached_grade_count,
+    set_cached_overall_avg_gpa,
+)
 from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.graphql.types import GradeEvent, GradeInput
@@ -52,6 +58,10 @@ async def resolve_submit_grade(input: GradeInput) -> GradeEvent:
 
 
 async def resolve_overall_average_gpa() -> float:
+    cached = await get_cached_overall_avg_gpa()
+    if cached is not None:
+        return cached
+
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             text("""
@@ -60,14 +70,23 @@ async def resolve_overall_average_gpa() -> float:
                 JOIN subjects sub ON g.subject_code = sub.subject_code
             """)
         )
-        val = result.scalar()
-        return round(float(val or 0), 4)
+        val = round(float(result.scalar() or 0), 4)
+
+    await set_cached_overall_avg_gpa(val)
+    return val
 
 
 async def resolve_grade_count() -> int:
+    cached = await get_cached_grade_count()
+    if cached is not None:
+        return cached
+
     async with AsyncSessionLocal() as session:
         result = await session.execute(text("SELECT COUNT(*) FROM grades"))
-        return int(result.scalar())
+        count = int(result.scalar())
+
+    await set_cached_grade_count(count)
+    return count
 
 
 async def resolve_recent_grades(limit: int) -> list[GradeEvent]:

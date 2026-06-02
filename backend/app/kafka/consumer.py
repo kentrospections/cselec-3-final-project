@@ -6,7 +6,7 @@ import numpy as np
 from aiokafka import AIOKafkaConsumer
 from sqlalchemy import text
 
-from app.cache.redis_client import invalidate_gpa
+from app.cache.redis_client import invalidate_gpa, invalidate_subject_analytics
 from app.config import settings
 from app.db.session import AsyncSessionLocal
 from app.ml.classifier import get_model
@@ -110,9 +110,12 @@ async def cache_invalidator_consumer() -> None:
             try:
                 async for msg in consumer:
                     student_id = msg.value.get("student_id")
+                    subject_code = msg.value.get("subject_code")
                     if student_id is not None:
                         await invalidate_gpa(int(student_id))
                         await _recompute_at_risk_score(int(student_id))
+                    if subject_code:
+                        await invalidate_subject_analytics(subject_code)
             finally:
                 await consumer.stop()
         except asyncio.CancelledError:

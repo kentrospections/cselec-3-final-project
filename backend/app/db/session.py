@@ -6,6 +6,7 @@ engine = create_async_engine(
     echo=False,
     pool_size=20,
     max_overflow=40,
+    connect_args={"server_settings": {"jit": "off"}},
 )
 
 AsyncSessionLocal = async_sessionmaker(

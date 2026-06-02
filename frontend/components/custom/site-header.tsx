@@ -9,7 +9,7 @@ const pageTitles: Record<string, string> = {
   "/grades": "Grades",
   "/students": "Students",
   "/subjects": "Subjects",
-  "/semesters": "Semesters",
+  "/years": "Years",
 }
 
 export function SiteHeader() {

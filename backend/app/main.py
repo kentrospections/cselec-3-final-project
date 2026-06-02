@@ -6,6 +6,8 @@ from fastapi import FastAPI
 
 from app.cache.redis_client import close_redis
 from app.config import settings
+from app.graphql.resolvers.grades import resolve_grade_count, resolve_overall_average_gpa
+from app.graphql.resolvers.semesters import resolve_semester_comparison
 from app.graphql.schema import graphql_app
 from app.kafka.consumer import cache_invalidator_consumer, subscription_pusher_consumer
 from app.kafka.producer import close_producer
@@ -14,6 +16,17 @@ from app.ml.classifier import load_model
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+async def _warm_cache() -> None:
+    """Pre-populate expensive cache entries at startup so the first user never hits a cold DB."""
+    try:
+        await resolve_semester_comparison(None)
+        await resolve_overall_average_gpa()
+        await resolve_grade_count()
+        logger.info("Cache pre-warm complete.")
+    except Exception as exc:
+        logger.warning("Cache pre-warm failed (non-fatal): %s", exc)
 
 
 def _on_task_done(t: asyncio.Task) -> None:
@@ -26,6 +39,7 @@ def _on_task_done(t: asyncio.Task) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_model()
+    asyncio.create_task(_warm_cache(), name="cache-warm")
     task1 = asyncio.create_task(cache_invalidator_consumer(), name="cache-invalidator")
     task2 = asyncio.create_task(subscription_pusher_consumer(), name="subscription-pusher")
     task1.add_done_callback(_on_task_done)

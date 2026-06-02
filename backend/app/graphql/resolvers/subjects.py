@@ -2,6 +2,10 @@ from typing import Optional
 
 from sqlalchemy import text
 
+from app.cache.redis_client import (
+    get_cached_subject_analytics,
+    set_cached_subject_analytics,
+)
 from app.db.session import AsyncSessionLocal
 from app.graphql.types import Subject, SubjectAnalytics, SubjectSemesterTrend
 
@@ -12,7 +16,38 @@ async def resolve_subjects() -> list[Subject]:
     return [Subject(subject_code=r.subject_code, description=r.description, units=r.units) for r in rows]
 
 
+def _analytics_to_dict(a: SubjectAnalytics) -> dict:
+    return {
+        "subject_code": a.subject_code,
+        "description": a.description,
+        "average_grade": a.average_grade,
+        "pass_rate": a.pass_rate,
+        "grade_distribution": a.grade_distribution,
+        "semester_trends": [
+            {
+                "semester": t.semester,
+                "school_year": t.school_year,
+                "average_grade": t.average_grade,
+                "pass_rate": t.pass_rate,
+                "rolling_avg": t.rolling_avg,
+            }
+            for t in a.semester_trends
+        ],
+    }
+
+
 async def resolve_subject_analytics(subject_code: str) -> Optional[SubjectAnalytics]:
+    cached = await get_cached_subject_analytics(subject_code)
+    if cached is not None:
+        return SubjectAnalytics(
+            subject_code=cached["subject_code"],
+            description=cached["description"],
+            average_grade=cached["average_grade"],
+            pass_rate=cached["pass_rate"],
+            grade_distribution=cached["grade_distribution"],
+            semester_trends=[SubjectSemesterTrend(**t) for t in cached["semester_trends"]],
+        )
+
     async with AsyncSessionLocal() as session:
         subject_row = (
             await session.execute(
@@ -80,7 +115,7 @@ async def resolve_subject_analytics(subject_code: str) -> Optional[SubjectAnalyt
         for i, r in enumerate(trend_rows)
     ]
 
-    return SubjectAnalytics(
+    result = SubjectAnalytics(
         subject_code=subject_row.subject_code,
         description=subject_row.description,
         average_grade=round(float(agg.avg_grade or 0), 4),
@@ -95,3 +130,6 @@ async def resolve_subject_analytics(subject_code: str) -> Optional[SubjectAnalyt
         },
         semester_trends=semester_trends,
     )
+
+    await set_cached_subject_analytics(subject_code, _analytics_to_dict(result))
+    return result

@@ -8,6 +8,7 @@ from app.cache.redis_client import close_redis
 from app.config import settings
 from app.graphql.schema import graphql_app
 from app.kafka.consumer import cache_invalidator_consumer, subscription_pusher_consumer
+from app.kafka.producer import close_producer
 from app.kafka.simulator import grade_simulator_task
 from app.ml.classifier import load_model
 
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI):
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        await close_producer()
         await close_redis()
         logger.info("Shutdown complete")
 

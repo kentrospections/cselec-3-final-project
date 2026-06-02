@@ -58,11 +58,12 @@ async def _recompute_at_risk_score(student_id: int) -> None:
             await session.execute(
                 text("""
                     SELECT
-                        AVG(grade)                                             AS gpa,
-                        COUNT(*) FILTER (WHERE grade < 75)                    AS fail_count,
-                        COUNT(DISTINCT subject_code) FILTER (WHERE grade < 75) AS fail_subjects
-                    FROM grades
-                    WHERE student_id = :sid
+                        SUM(g.grade * sub.units) / SUM(sub.units)              AS gpa,
+                        COUNT(*) FILTER (WHERE g.grade < 75)                   AS fail_count,
+                        COUNT(DISTINCT g.subject_code) FILTER (WHERE g.grade < 75) AS fail_subjects
+                    FROM grades g
+                    JOIN subjects sub ON g.subject_code = sub.subject_code
+                    WHERE g.student_id = :sid
                 """),
                 {"sid": student_id},
             )
@@ -96,8 +97,8 @@ async def _recompute_at_risk_score(student_id: int) -> None:
         score = float(model.predict_proba(features)[0, 1])
 
         await session.execute(
-            text("UPDATE students SET at_risk_score = :score WHERE student_id = :sid"),
-            {"score": score, "sid": student_id},
+            text("UPDATE students SET at_risk_score = :score, is_at_risk = :flag WHERE student_id = :sid"),
+            {"score": score, "flag": score >= 0.5, "sid": student_id},
         )
         await session.commit()
 

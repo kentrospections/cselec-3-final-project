@@ -131,6 +131,25 @@ export const GradeCountQuery = /* GraphQL */ `
   }
 `
 
+export const OverallAverageGpaQuery = /* GraphQL */ `
+  query OverallAverageGpa {
+    overallAverageGpa
+  }
+`
+
+export const SubmitGradeMutation = /* GraphQL */ `
+  mutation SubmitGrade($input: GradeInput!) {
+    submitGrade(input: $input) {
+      gradeId
+      studentId
+      subjectCode
+      semesterId
+      grade
+      timestamp
+    }
+  }
+`
+
 export const SemesterComparisonQuery = /* GraphQL */ `
   query SemesterComparison($schoolYear: Int) {
     semesterComparison(schoolYear: $schoolYear) {

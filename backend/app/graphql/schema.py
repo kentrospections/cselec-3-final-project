@@ -7,6 +7,7 @@ from strawberry.types import Info
 from app.graphql.resolvers import grades, semesters, students, subjects, subscriptions
 from app.graphql.types import (
     GradeEvent,
+    GradeInput,
     Semester,
     SemesterTrend,
     StudentDetail,
@@ -65,6 +66,17 @@ class Query:
     async def grade_count(self, info: Info) -> int:
         return await grades.resolve_grade_count()
 
+    @strawberry.field
+    async def overall_average_gpa(self, info: Info) -> float:
+        return await grades.resolve_overall_average_gpa()
+
+
+@strawberry.type
+class Mutation:
+    @strawberry.mutation
+    async def submit_grade(self, info: Info, input: GradeInput) -> GradeEvent:
+        return await grades.resolve_submit_grade(input)
+
 
 @strawberry.type
 class Subscription:
@@ -74,5 +86,5 @@ class Subscription:
             yield event
 
 
-schema = strawberry.Schema(query=Query, subscription=Subscription)
+schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
 graphql_app = GraphQLRouter(schema, subscription_protocols=["graphql-transport-ws"])

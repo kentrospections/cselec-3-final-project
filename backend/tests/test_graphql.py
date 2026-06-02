@@ -69,11 +69,11 @@ async def test_students_at_risk_filter_uses_stored_score(client, seeded_db):
     assert "Alice" not in names
 
 
-async def test_students_at_risk_false_returns_all(client, seeded_db):
-    # Regression: atRisk: false must not filter — both students returned
-    data = await gql(client, "{ students(atRisk: false) { name } }")
+async def test_students_at_risk_false_returns_non_at_risk_only(client, seeded_db):
+    # atRisk: false filters to students with at_risk_score < 0.5 (mirrors "Not at risk" tab)
+    data = await gql(client, "{ students(atRisk: false) { name atRiskScore } }")
     names = {s["name"] for s in data["students"]}
-    assert names == {"Alice", "Bob"}
+    assert names == {"Alice"}  # Bob has at_risk_score=0.9, excluded
 
 
 # ─── student (single) query ───────────────────────────────────────────────────
@@ -158,7 +158,7 @@ async def test_subject_analytics_grade_distribution_keys(client, seeded_db):
         'query { subjectAnalytics(subjectCode: "CS101") { gradeDistribution } }',
     )
     dist = data["subjectAnalytics"]["gradeDistribution"]
-    assert set(dist.keys()) == {"60-69", "70-74", "75-79", "80-89", "90-100"}
+    assert set(dist.keys()) == {"below_60", "60-69", "70-74", "75-79", "80-89", "90-100"}
 
 
 # ─── semesters query ──────────────────────────────────────────────────────────

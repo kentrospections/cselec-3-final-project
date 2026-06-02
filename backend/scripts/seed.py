@@ -5,8 +5,14 @@ Usage:
     uv run python scripts/seed.py
 
 Requires PostgreSQL to be running and accessible via DATABASE_DSN in .env.
-Inserts 500,000 students, 15 semesters, 10 subjects, and ~37.5M grade rows,
+
+Inserts 1,000 students, 15 semesters, 10 subjects, and ~7M grade rows
+(1,000 students × 15 semesters × 10 subjects × 47 assessments),
 then trains the at-risk logistic regression classifier and saves it.
+
+Each student has a per-subject aptitude offset so that some students excel at
+CS courses while struggling at ENG ones (and vice versa), creating realistic
+grade variance across subjects.
 """
 import asyncio
 import os
@@ -47,9 +53,9 @@ SEMESTERS = [
 ]  # 15 entries
 
 COURSES = ["BSCS", "BSECE", "BSME", "BSEE", "BSIT"]
-SUBJECTS_PER_SEMESTER = 5
-NUM_STUDENTS = 500_000
+NUM_STUDENTS = 1_000
 AT_RISK_RATIO = 0.15
+ASSESSMENTS_PER_SUBJECT = 47   # 1000 × 15 × 10 × 47 ≈ 7,050,000 grade rows
 BATCH_SIZE = 10_000
 
 fake = Faker()
@@ -61,6 +67,14 @@ np.random.seed(42)
 async def main() -> None:
     print(f"Connecting to {DB_DSN} ...")
     conn = await asyncpg.connect(DB_DSN)
+
+    # ------------------------------------------------------------------
+    # Truncate all data so the script is safe to re-run
+    # ------------------------------------------------------------------
+    print("Truncating existing data ...")
+    await conn.execute(
+        "TRUNCATE grades, students, subjects, semesters RESTART IDENTITY CASCADE"
+    )
 
     print("Inserting subjects and semesters ...")
     await conn.executemany(
@@ -102,9 +116,18 @@ async def main() -> None:
     print(f"Loaded {len(student_ids):,} students")
 
     # ------------------------------------------------------------------
+    # Per-student per-subject aptitude offsets
+    # Gives each student consistent subject strengths/weaknesses.
+    # ------------------------------------------------------------------
+    print("Generating per-student subject aptitude offsets ...")
+    aptitude: dict[int, dict[str, float]] = {}
+    for sid, _ in student_ids:
+        aptitude[sid] = {code: random.gauss(0, 12.0) for code in subject_codes}
+
+    # ------------------------------------------------------------------
     # Generate and stream-insert grades in batches
     # ------------------------------------------------------------------
-    print("Generating and inserting grade rows ...")
+    print(f"Generating ~{NUM_STUDENTS * len(sem_ids) * len(subject_codes) * ASSESSMENTS_PER_SUBJECT:,} grade rows ...")
     total_grades = 0
     grade_buffer: list[tuple] = []
 
@@ -117,21 +140,23 @@ async def main() -> None:
 
     for student_id, is_at_risk in student_ids:
         for sem_idx, semester_id in enumerate(sem_ids):
-            chosen = random.sample(subject_codes, SUBJECTS_PER_SEMESTER)
-            for subject_code in chosen:
-                if is_at_risk:
-                    base = random.uniform(60.0, 79.0)
-                    grade = max(50.0, base - sem_idx * 0.5)
-                else:
-                    base = random.uniform(80.0, 100.0)
-                    grade = min(100.0, base + sem_idx * 0.1)
-                grade_buffer.append((student_id, subject_code, semester_id, round(grade, 2)))
+            for subject_code in subject_codes:
+                apt = aptitude[student_id][subject_code]
+                for _ in range(ASSESSMENTS_PER_SUBJECT):
+                    if is_at_risk:
+                        base = random.uniform(58.0, 79.0) - sem_idx * 0.4
+                    else:
+                        base = random.uniform(80.0, 100.0) + sem_idx * 0.1
+                    grade = round(
+                        max(50.0, min(100.0, base + apt + random.gauss(0, 6.0))), 2
+                    )
+                    grade_buffer.append((student_id, subject_code, semester_id, grade))
 
         if len(grade_buffer) >= BATCH_SIZE:
             await flush(grade_buffer)
             total_grades += len(grade_buffer)
             grade_buffer.clear()
-            if total_grades % 1_000_000 == 0:
+            if total_grades % 500_000 == 0:
                 print(f"  Inserted {total_grades:,} grade rows ...")
 
     if grade_buffer:
@@ -141,7 +166,7 @@ async def main() -> None:
     print(f"Total grade rows inserted: {total_grades:,}")
 
     # ------------------------------------------------------------------
-    # Feature extraction for ML training
+    # Feature extraction for ML training (weighted GPA)
     # ------------------------------------------------------------------
     print("Extracting features for model training ...")
 
@@ -149,20 +174,23 @@ async def main() -> None:
         SELECT
             s.student_id,
             s.is_at_risk,
-            AVG(g.grade)                                            AS gpa,
+            SUM(g.grade * sub.units) / SUM(sub.units)              AS gpa,
             COUNT(*) FILTER (WHERE g.grade < 75)                   AS fail_count,
             COUNT(DISTINCT g.subject_code) FILTER (WHERE g.grade < 75) AS fail_subjects
         FROM students s
         JOIN grades g ON s.student_id = g.student_id
+        JOIN subjects sub ON g.subject_code = sub.subject_code
         GROUP BY s.student_id, s.is_at_risk
     """)
 
     print("Extracting per-semester GPA for slope computation ...")
     sem_gpa_rows = await conn.fetch("""
-        SELECT student_id, semester_id, AVG(grade) AS sem_gpa
-        FROM grades
-        GROUP BY student_id, semester_id
-        ORDER BY student_id, semester_id
+        SELECT g.student_id, g.semester_id,
+               SUM(g.grade * sub.units) / SUM(sub.units) AS sem_gpa
+        FROM grades g
+        JOIN subjects sub ON g.subject_code = sub.subject_code
+        GROUP BY g.student_id, g.semester_id
+        ORDER BY g.student_id, g.semester_id
     """)
 
     sem_gpas: dict[int, list[float]] = defaultdict(list)
@@ -190,15 +218,15 @@ async def main() -> None:
     print("Persisting at_risk_score for all students ...")
     scores = model.predict_proba(np.array(X, dtype=float))[:, 1]
     score_records = [
-        (float(scores[i]), int(agg_rows[i]["student_id"]))
+        (float(scores[i]), bool(scores[i] >= 0.5), int(agg_rows[i]["student_id"]))
         for i in range(len(agg_rows))
     ]
     for i in range(0, len(score_records), BATCH_SIZE):
         await conn.executemany(
-            "UPDATE students SET at_risk_score = $1 WHERE student_id = $2",
+            "UPDATE students SET at_risk_score = $1, is_at_risk = $2 WHERE student_id = $3",
             score_records[i : i + BATCH_SIZE],
         )
-    print(f"at_risk_score persisted for {len(score_records):,} students")
+    print(f"at_risk_score and is_at_risk persisted for {len(score_records):,} students")
 
     await conn.close()
     print("Seed complete.")

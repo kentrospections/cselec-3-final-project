@@ -93,3 +93,11 @@ class GradeEvent:
     semester_id: int
     grade: float
     timestamp: Optional[str] = None
+
+
+@strawberry.input
+class GradeInput:
+    student_id: int
+    subject_code: str
+    semester_id: int
+    grade: float

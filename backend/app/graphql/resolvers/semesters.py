@@ -32,13 +32,14 @@ async def resolve_semester_comparison(school_year: Optional[int]) -> list[Semest
                         sem.semester_id,
                         sem.semester,
                         sem.school_year,
-                        AVG(g.grade) AS avg_gpa,
+                        SUM(g.grade * sub.units) / SUM(sub.units) AS avg_gpa,
                         COUNT(*) FILTER (WHERE g.grade >= 75)::float
                             / NULLIF(COUNT(*), 0) AS pass_rate,
                         COUNT(DISTINCT s.student_id) FILTER (WHERE s.is_at_risk) AS at_risk_count
                     FROM grades g
                     JOIN semesters sem ON g.semester_id = sem.semester_id
                     JOIN students s ON g.student_id = s.student_id
+                    JOIN subjects sub ON g.subject_code = sub.subject_code
                     {year_filter}
                     GROUP BY sem.semester_id, sem.semester, sem.school_year
                     ORDER BY sem.semester_id

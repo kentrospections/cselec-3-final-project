@@ -30,10 +30,11 @@ async def resolve_subject_analytics(subject_code: str) -> Optional[SubjectAnalyt
                     SELECT
                         AVG(grade) AS avg_grade,
                         COUNT(*) FILTER (WHERE grade >= 75)::float / NULLIF(COUNT(*), 0) AS pass_rate,
-                        COUNT(*) FILTER (WHERE grade >= 60 AND grade < 70)  AS b60,
-                        COUNT(*) FILTER (WHERE grade >= 70 AND grade < 75)  AS b70,
-                        COUNT(*) FILTER (WHERE grade >= 75 AND grade < 80)  AS b75,
-                        COUNT(*) FILTER (WHERE grade >= 80 AND grade < 90)  AS b80,
+                        COUNT(*) FILTER (WHERE grade < 60)                   AS b_below60,
+                        COUNT(*) FILTER (WHERE grade >= 60 AND grade < 70)   AS b60,
+                        COUNT(*) FILTER (WHERE grade >= 70 AND grade < 75)   AS b70,
+                        COUNT(*) FILTER (WHERE grade >= 75 AND grade < 80)   AS b75,
+                        COUNT(*) FILTER (WHERE grade >= 80 AND grade < 90)   AS b80,
                         COUNT(*) FILTER (WHERE grade >= 90 AND grade <= 100) AS b90
                     FROM grades
                     WHERE subject_code = :code
@@ -85,6 +86,7 @@ async def resolve_subject_analytics(subject_code: str) -> Optional[SubjectAnalyt
         average_grade=round(float(agg.avg_grade or 0), 4),
         pass_rate=round(float(agg.pass_rate or 0), 4),
         grade_distribution={
+            "below_60": int(agg.b_below60),
             "60-69": int(agg.b60),
             "70-74": int(agg.b70),
             "75-79": int(agg.b75),

@@ -17,6 +17,7 @@ import { gqlFetch } from "@/lib/graphql"
 import {
   GradeCountQuery,
   GradeUpdatesSubscription,
+  OverallAverageGpaQuery,
   StudentsQuery,
   type GradeEvent,
   type StudentSummary,
@@ -27,6 +28,7 @@ const greenBadge = "border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dar
 export function DashboardCards() {
   const [students, setStudents] = React.useState<StudentSummary[] | null>(null)
   const [gradeCount, setGradeCount] = React.useState<number | null>(null)
+  const [overallAvgGpa, setOverallAvgGpa] = React.useState<number | null>(null)
 
   React.useEffect(() => {
     gqlFetch<{ students: StudentSummary[] }>(StudentsQuery)
@@ -34,6 +36,9 @@ export function DashboardCards() {
       .catch(console.error)
     gqlFetch<{ gradeCount: number }>(GradeCountQuery)
       .then((d) => setGradeCount(d.gradeCount))
+      .catch(console.error)
+    gqlFetch<{ overallAverageGpa: number }>(OverallAverageGpaQuery)
+      .then((d) => setOverallAvgGpa(d.overallAverageGpa))
       .catch(console.error)
   }, [])
 
@@ -62,10 +67,7 @@ export function DashboardCards() {
 
   const total = students?.length ?? null
   const atRisk = students?.filter((s) => s.isAtRisk).length ?? null
-  const avgGpa =
-    students && students.length > 0
-      ? students.reduce((sum, s) => sum + s.gpa, 0) / students.length
-      : null
+  const avgGpa = overallAvgGpa
   const atRiskPct = total && atRisk !== null ? ((atRisk / total) * 100).toFixed(1) : null
   const atRiskGood = atRiskPct !== null && parseFloat(atRiskPct) <= 20
 
@@ -159,9 +161,9 @@ export function DashboardCards() {
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1.5 text-sm">
           <div className="line-clamp-1 flex gap-2 font-medium">
-            Across all students
+            Across all grade records
           </div>
-          <div className="text-muted-foreground">Mean of all student GPAs</div>
+          <div className="text-muted-foreground">Population weighted average (by credit units)</div>
         </CardFooter>
       </Card>
     </div>

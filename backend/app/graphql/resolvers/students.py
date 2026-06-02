@@ -72,10 +72,12 @@ async def resolve_students(
             gpa_rows = (
                 await session.execute(
                     text("""
-                        SELECT student_id, AVG(grade) AS gpa
-                        FROM grades
-                        WHERE student_id = ANY(:ids)
-                        GROUP BY student_id
+                        SELECT g.student_id,
+                               SUM(g.grade * sub.units) / SUM(sub.units) AS gpa
+                        FROM grades g
+                        JOIN subjects sub ON g.subject_code = sub.subject_code
+                        WHERE g.student_id = ANY(:ids)
+                        GROUP BY g.student_id
                     """),
                     {"ids": miss_ids},
                 )
@@ -125,6 +127,7 @@ async def resolve_student(student_id: int) -> Optional[StudentDetail]:
                         sem.school_year,
                         g.subject_code,
                         sub.description,
+                        sub.units,
                         g.grade
                     FROM grades g
                     JOIN semesters sem ON g.semester_id = sem.semester_id
@@ -145,17 +148,26 @@ async def resolve_student(student_id: int) -> Optional[StudentDetail]:
                 "semester": r.semester,
                 "school_year": r.school_year,
                 "grades": [],
+                "units": [],
             }
         sem_map[r.semester_id]["grades"].append(
             GradeRecord(subject_code=r.subject_code, description=r.description, grade=r.grade)
         )
+        sem_map[r.semester_id]["units"].append(int(r.units))
 
     semesters_out = []
-    all_grades: list[float] = []
+    total_weight = 0.0
+    weighted_sum = 0.0
     for sem in sem_map.values():
         grades = sem["grades"]
-        sem_gpa = sum(g.grade for g in grades) / len(grades) if grades else 0.0
-        all_grades.extend(g.grade for g in grades)
+        units_list = sem["units"]
+        sem_units = sum(units_list)
+        sem_gpa = (
+            sum(g.grade * u for g, u in zip(grades, units_list)) / sem_units
+            if sem_units else 0.0
+        )
+        weighted_sum += sum(g.grade * u for g, u in zip(grades, units_list))
+        total_weight += sem_units
         semesters_out.append(
             SemesterGrades(
                 semester_id=sem["semester_id"],
@@ -166,7 +178,7 @@ async def resolve_student(student_id: int) -> Optional[StudentDetail]:
             )
         )
 
-    overall_gpa = sum(all_grades) / len(all_grades) if all_grades else 0.0
+    overall_gpa = weighted_sum / total_weight if total_weight else 0.0
 
     return StudentDetail(
         student_id=student_row.student_id,

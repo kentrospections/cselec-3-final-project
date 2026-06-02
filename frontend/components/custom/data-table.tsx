@@ -233,7 +233,11 @@ export function DataTable<T>({
                   {secondaryFilter.label}
                   <IconChevronDown data-icon="inline-end" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-40">
+                <DropdownMenuContent
+                  align="start"
+                  className="min-w-40"
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
                   {secondaryFilter.options.map((opt) => (
                     <DropdownMenuCheckboxItem
                       key={opt}
@@ -257,7 +261,11 @@ export function DataTable<T>({
                 <span className={btnLabel}>Columns</span>
                 <IconChevronDown data-icon="inline-end" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-36">
+              <DropdownMenuContent
+                align="end"
+                className="w-36"
+                onPointerDown={(e) => e.stopPropagation()}
+              >
                 {table
                   .getAllColumns()
                   .filter((col) => col.getCanHide())

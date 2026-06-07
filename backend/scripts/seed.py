@@ -30,7 +30,12 @@ from sklearn.linear_model import LogisticRegression
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-DB_DSN = os.environ.get("DATABASE_DSN", "postgresql://postgres:password@localhost:5432/analytics")
+_url_fallback = os.environ.get("DATABASE_URL", "").replace(
+    "postgresql+asyncpg://", "postgresql://"
+)
+DB_DSN = os.environ.get(
+    "DATABASE_DSN", _url_fallback or "postgresql://postgres:password@localhost:5432/analytics"
+)
 MODEL_PATH = os.environ.get("MODEL_PATH", "model/at_risk_classifier.joblib")
 
 SUBJECTS = [

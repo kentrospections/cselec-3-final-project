@@ -4,4 +4,5 @@ WORKDIR /app
 COPY pyproject.toml ./
 RUN uv sync --no-dev
 COPY . .
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+RUN chmod +x scripts/entrypoint.sh
+CMD ["bash", "scripts/entrypoint.sh"]
